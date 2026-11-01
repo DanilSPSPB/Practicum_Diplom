@@ -1,0 +1,48 @@
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    root /var/www/mediawiki-1.42.1;
+    index index.php;
+
+    # Лимит на загрузку файлов (согласуйте с php.ini и $wgMaxUploadSize)
+    client_max_body_size 50m;
+
+    # --- Безопасность: блокировка доступа к чувствительным файлам и директориям ---
+    # Важно: эти блоки должны идти ДО обработки PHP, иначе .php-файлы внутри них выполнятся
+    location ~* ^/(LocalSettings|AdminSettings|\.htaccess|\.git) {
+        deny all;
+    }
+
+    # Блокировка служебных директорий MediaWiki (используем ^~ для приоритета над regex)
+   # location ^~ /maintenance/ { deny all; }
+   # location ^~ /cache/       { deny all; }
+   # location ^~ /includes/    { deny all; }
+  # location ^~ /languages/   { deny all; }
+   # location ^~ /serialized/  { deny all; }
+   # location ^~ /mw-config/   { deny all; }
+
+    # --- Статика: кэширование на стороне браузера (снижает нагрузку на NFS) ---
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf)$ {
+        try_files $uri /index.php?$query_string;
+        expires 1d;
+        add_header Cache-Control "public";
+        access_log off;
+        log_not_found off;
+    }
+
+    # --- Основная маршрутизация ---
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # --- Передача PHP в PHP-FPM ---
+    location ~ \.php$ {
+        try_files $uri =404; # Защита от выполнения несуществующих скриптов
+        include fastcgi_params;
+        fastcgi_pass unix:/var/run/php/php8.5-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param HTTP_PROXY "";
+        fastcgi_read_timeout 300;
+    }
+}
