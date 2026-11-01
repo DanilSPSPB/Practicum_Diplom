@@ -1,0 +1,23 @@
+upstream backend {
+        server 192.168.10.2:8080;
+        server 192.168.10.3:8080;
+}
+
+server {
+        listen 80 default_server;
+        server_name _;
+
+        client_max_body_size 50m;
+        location / {
+                proxy_pass http://backend;
+
+                proxy_set_header Host $host;
+
+                # Передаём реальный IP клиента (цепочка IP, если прокси несколько)
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+                # Передаём исходный протокол (http или https)
+                proxy_set_header X-Forwarded-Proto $scheme;
+        }
+}
