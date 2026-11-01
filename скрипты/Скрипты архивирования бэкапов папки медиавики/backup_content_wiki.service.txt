@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup contetn mediawiki dir
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=backupuser
+ExecStart=/home/backupuser/wiki_script_backup
+Restart=on-failure
+RestartSec=10m
