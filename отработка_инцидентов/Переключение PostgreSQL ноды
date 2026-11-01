@@ -1,0 +1,16 @@
+Необходимо на серверах веб-приложений изменить данные для подключение к базе данных по пути /var/www/mediawiki-1.42.1/ LocalSettings.php
+а именно  ip адрес базы данных - на адрес резервного сервера
+
+На сервере в режиме восстановления переводим его в мастер командой
+sudo pg_ctlcluster 18 main promote
+
+Псоел этого сервер доступен для чтения и записи.
+Обслуживаем второй сервер и полность удаляем старую базуданных и файлы конфигурации.
+
+sudo systemctl stop postgresql
+sudo -u postgres rm -rf /var/lib/postgresql/18/main/
+
+Копируем все содержимое с нового праймери. Этот сервер теперь работает у нас в режиме рпликации
+
+sudo -u postgres pg_basebackup -h ip-primery-ноды -D /var/lib/postgresql/18/main -U syncuser -P -v -R --checkpoint=fast\
+sudo systemctl start postgresql
