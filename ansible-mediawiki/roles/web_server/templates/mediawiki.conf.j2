@@ -1,0 +1,64 @@
+server {
+    listen {{ nginx_web_listen_port }} default_server;
+    server_name _;
+
+    # MediaWiki application code is local to this web server.
+    root {{ mediawiki_root }};
+    index index.php;
+
+    client_max_body_size {{ nginx_web_client_max_body_size }};
+
+    # Protect configuration and repository metadata.
+    location ~* ^/(LocalSettings|AdminSettings|\.htaccess|\.git) {
+        deny all;
+    }
+
+    # Uploaded content is stored on NFS and served directly from the mount.
+    # Never execute uploaded PHP-like files.
+    location ~* ^/images/.*\.(php[0-9]?|phtml|phar)(/|$) {
+        deny all;
+    }
+
+    location = /images {
+        return 301 /images/;
+    }
+
+    location /images/ {
+        alias {{ mediawiki_upload_mount_point }}/;
+        autoindex off;
+        expires 1d;
+        add_header Cache-Control "public";
+        access_log off;
+    }
+
+    # Internal MediaWiki directories must not be served directly.
+    location ^~ /maintenance/ { deny all; }
+    location ^~ /cache/      { deny all; }
+    location ^~ /includes/   { deny all; }
+    location ^~ /languages/  { deny all; }
+    location ^~ /serialized/ { deny all; }
+    location ^~ /mw-config/  { deny all; }
+
+    # Cache static application assets from the local MediaWiki code tree.
+    # /images/ is intentionally excluded because it has its own NFS alias above.
+    location ~* ^/(?!images/).+\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf)$ {
+        try_files $uri /index.php?$query_string;
+        expires 1d;
+        add_header Cache-Control "public";
+        access_log off;
+        log_not_found off;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        include fastcgi_params;
+        fastcgi_pass unix:{{ php_fpm_socket }};
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param HTTP_PROXY "";
+        fastcgi_read_timeout 300;
+    }
+}

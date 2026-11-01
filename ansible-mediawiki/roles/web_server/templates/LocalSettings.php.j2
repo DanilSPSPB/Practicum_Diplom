@@ -1,0 +1,78 @@
+
+<?php
+# Created by Ansible.
+# This file is local to each web server.
+
+if ( !defined( 'MEDIAWIKI' ) ) {
+    exit;
+}
+
+/*
+ * General settings
+ */
+
+$wgSitename = {{ mediawiki_sitename | to_json }};
+$wgMetaNamespace = {{ mediawiki_meta_namespace | to_json }};
+
+$wgServer = {{ mediawiki_server_url | to_json }};
+$wgScriptPath = "";
+$wgResourceBasePath = $wgScriptPath;
+
+$wgLanguageCode = "ru";
+$wgDefaultSkin = "vector";
+
+/*
+ * Database configuration
+ */
+
+$wgDBtype = {{ mediawiki_db_type | to_json }};
+$wgDBserver = {{ mediawiki_db_host | to_json }};
+$wgDBport = {{ mediawiki_db_port }};
+$wgDBname = {{ mediawiki_db_name | to_json }};
+$wgDBuser = {{ mediawiki_db_user | to_json }};
+$wgDBpassword = {{ mediawiki_db_password | to_json }};
+$wgDBprefix = "";
+
+/*
+ * Database-backed caching
+ *
+ * Both web servers use PostgreSQL as a shared cache.
+ */
+
+$wgMainCacheType = CACHE_DB;
+$wgParserCacheType = CACHE_DB;
+$wgMessageCacheType = CACHE_DB;
+$wgSessionCacheType = CACHE_DB;
+
+/*
+ * Security
+ */
+
+$wgSecretKey = {{ mediawiki_secret_key | to_json }};
+
+/*
+ * File uploads
+ *
+ * Actual files are stored on the NFS server.
+ * Nginx serves them through the /images/ location.
+ */
+
+$wgEnableUploads = true;
+
+$wgUploadDirectory = {{ mediawiki_upload_directory | to_json }};
+$wgUploadPath = {{ mediawiki_upload_url_path | to_json }};
+
+$wgMaxUploadSize = {{ mediawiki_max_upload_size }};
+
+/*
+ * Error reporting
+ */
+
+$wgShowExceptionDetails = false;
+$wgDevelopmentWarnings = false;
+
+/*
+ * Skin
+ */
+
+wfLoadSkin( 'Vector' );

@@ -1,0 +1,6 @@
+---
+# Replace the placeholders with long random values, then encrypt this file.
+vault_mediawiki_db_password: "REPLACE_WITH_RANDOM_WIKIUSER_PASSWORD"
+vault_mediawiki_secret_key: "REPLACE_WITH_RANDOM_MEDIAWIKI_SECRET_KEY_AT_LEAST_32_CHARS"
+vault_postgresql_replication_password: "REPLACE_WITH_RANDOM_REPLICATION_PASSWORD"
+vault_zabbix_db_password: "REPLACE_WITH_RANDOM_ZABBIX_DB_PASSWORD"

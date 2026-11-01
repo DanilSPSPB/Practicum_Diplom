@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+LOCAL_ROOT="{{ backup_mediawiki_local_root }}"
+PENDING_DIR="${LOCAL_ROOT}/pending"
+SENT_DIR="${LOCAL_ROOT}/sent"
+WORK_DIR="$(mktemp -d "${LOCAL_ROOT}/work.XXXXXX")"
+BACKUP_HOST="{{ backup_storage_host }}"
+BACKUP_USER="{{ backup_storage_user }}"
+BACKUP_PORT="{{ backup_storage_port }}"
+REMOTE_DIR="{{ backup_storage_mediawiki_dir }}"
+SSH_KEY="{{ backup_ssh_private_key_path }}"
+KNOWN_HOSTS="{{ backup_ssh_known_hosts_path }}"
+MEDIAWIKI_ROOT="{{ mediawiki_root }}"
+UPLOAD_DIR="{{ mediawiki_upload_mount_point }}"
+TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+ARCHIVE_NAME="mediawiki-{{ inventory_hostname }}-${TIMESTAMP}.tar.gz"
+
+cleanup() { rm -rf -- "${WORK_DIR}"; }
+trap cleanup EXIT
+
+if [[ ! -f "${MEDIAWIKI_ROOT}/index.php" || ! -d "${UPLOAD_DIR}" ]]; then
+    echo "MediaWiki code or uploads directory is missing" >&2
+    exit 1
+fi
+
+# Back up the complete local MediaWiki directory and the separately mounted uploads.
+tar -czf "${WORK_DIR}/${ARCHIVE_NAME}" -C / \
+    "${MEDIAWIKI_ROOT#/}" "${UPLOAD_DIR#/}"
+mv -- "${WORK_DIR}/${ARCHIVE_NAME}" "${PENDING_DIR}/${ARCHIVE_NAME}.pending"
+
+# Retry pending transfers; remove a local copy only after SCP succeeds.
+shopt -s nullglob
+for archive in "${PENDING_DIR}"/*.pending; do
+    filename="$(basename "${archive%.pending}")"
+    scp -P "${BACKUP_PORT}" \
+        -i "${SSH_KEY}" \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="${KNOWN_HOSTS}" \
+        "${archive}" \
+        "${BACKUP_USER}@${BACKUP_HOST}:${REMOTE_DIR}/${filename}.uploading"
+
+    ssh -p "${BACKUP_PORT}" \
+        -i "${SSH_KEY}" \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="${KNOWN_HOSTS}" \
+        "${BACKUP_USER}@${BACKUP_HOST}" \
+        "mv -- '${REMOTE_DIR}/${filename}.uploading' '${REMOTE_DIR}/${filename}'"
+
+    mv -- "${archive}" "${SENT_DIR}/${filename}"
+done

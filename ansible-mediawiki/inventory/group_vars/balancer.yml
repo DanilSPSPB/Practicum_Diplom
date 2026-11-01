@@ -1,0 +1,7 @@
+---
+nginx_package: nginx
+nginx_balancer_site_path: /etc/nginx/sites-available/mediawiki-balancer
+nginx_balancer_enabled_path: /etc/nginx/sites-enabled/mediawiki-balancer
+nginx_balancer_listen_port: 80
+nginx_balancer_client_max_body_size: 50m
+nginx_balancer_proxy_timeout: 300

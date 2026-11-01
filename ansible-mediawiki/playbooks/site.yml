@@ -1,0 +1,98 @@
+---
+- import_playbook: database.yml
+
+- name: Prepare the separate backup storage VM
+  hosts: backup
+  become: true
+  roles:
+    - backup_storage
+
+- name: Create dedicated SSH keys on the backup source VMs
+  hosts: postgres_primary:web_servers
+  become: true
+  tasks:
+    - name: Ensure root SSH directory exists on each backup source
+      ansible.builtin.file:
+        path: /root/.ssh
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Generate a dedicated SSH key for SCP backup transfers
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -f
+          - "{{ backup_ssh_private_key_path }}"
+          - -C
+          - "backup-transfer-{{ inventory_hostname }}"
+        creates: "{{ backup_ssh_private_key_path }}"
+
+    - name: Read the generated backup transfer public key
+      ansible.builtin.slurp:
+        src: "{{ backup_ssh_private_key_path }}.pub"
+      register: backup_source_public_key_file
+
+    - name: Publish this source public key to later plays
+      ansible.builtin.set_fact:
+        backup_source_public_key: "{{ backup_source_public_key_file.content | b64decode | trim }}"
+
+    - name: Trust the SSH host key of the backup storage VM
+      ansible.builtin.known_hosts:
+        path: "{{ backup_ssh_known_hosts_path }}"
+        name: "{{ backup_storage_host }}"
+        key: "{{ backup_storage_host }} {{ hostvars[groups['backup'][0]].backup_storage_host_public_key }}"
+        state: present
+
+- name: Authorize backup source nodes on the backup storage VM
+  hosts: backup
+  become: true
+  tasks:
+    - name: Allow the PostgreSQL primary and MediaWiki web servers to upload backups
+      ansible.posix.authorized_key:
+        user: "{{ backup_storage_user }}"
+        key: "{{ hostvars[item].backup_source_public_key }}"
+        state: present
+        manage_dir: true
+      loop: "{{ groups['postgres_primary'] + groups['web_servers'] }}"
+
+- name: Prepare the NFS server and shared MediaWiki uploads directory
+  hosts: network_storage
+  become: true
+  roles:
+    - nfs_server
+
+- name: Install scheduled PostgreSQL backups on the primary
+  hosts: postgres_primary
+  become: true
+  roles:
+    - backup_postgresql
+
+- name: Configure MediaWiki web servers
+  hosts: web_servers
+  become: true
+  roles:
+    - web_server
+
+- name: Install scheduled full MediaWiki backups on the web servers
+  hosts: web_servers
+  become: true
+  roles:
+    - backup_mediawiki
+
+- name: Configure the Nginx load balancer
+  hosts: balancer
+  become: true
+  roles:
+    - nginx_balancer
+
+- name: Install Zabbix agents and configure the monitoring server
+  hosts: all
+  become: true
+  roles:
+    - zabbix

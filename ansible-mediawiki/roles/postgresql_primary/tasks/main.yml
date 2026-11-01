@@ -1,0 +1,122 @@
+---
+- name: Install PostgreSQL repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - postgresql-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create PostgreSQL repository key directory
+  ansible.builtin.file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+    mode: '0755'
+
+- name: Download PostgreSQL repository signing key
+  ansible.builtin.get_url:
+    url: "{{ postgresql_apt_key_url }}"
+    dest: "{{ postgresql_apt_key_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Add the official PostgreSQL repository
+  ansible.builtin.copy:
+    dest: "{{ postgresql_apt_source_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: https://apt.postgresql.org/pub/repos/apt
+      Suites: {{ ansible_distribution_release }}-pgdg
+      Components: main
+      Signed-By: {{ postgresql_apt_key_path }}
+
+- name: Install PostgreSQL 16 and Python driver
+  ansible.builtin.apt:
+    name: "{{ postgresql_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configure PostgreSQL for application access and streaming replication
+  ansible.builtin.blockinfile:
+    path: "{{ postgresql_config_dir }}/postgresql.conf"
+    marker: "# {mark} ANSIBLE POSTGRESQL SETTINGS"
+    block: |
+      listen_addresses = '*'
+      port = {{ postgresql_port }}
+      password_encryption = 'scram-sha-256'
+      wal_level = replica
+      max_wal_senders = 10
+      max_replication_slots = 10
+  notify: Restart PostgreSQL
+
+- name: Allow MediaWiki and the standby to connect to PostgreSQL
+  ansible.builtin.blockinfile:
+    path: "{{ postgresql_config_dir }}/pg_hba.conf"
+    marker: "# {mark} ANSIBLE MEDIAWIKI AND REPLICATION ACCESS"
+    block: |
+      host  {{ mediawiki_db_name }}  {{ mediawiki_db_user }}  {{ postgresql_web_cidr }}  scram-sha-256
+      host  replication  {{ postgresql_replication_user }}  {{ postgresql_replication_cidr }}  scram-sha-256
+  notify: Restart PostgreSQL
+
+- name: Enable and start PostgreSQL
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Apply PostgreSQL configuration before creating users
+  ansible.builtin.meta: flush_handlers
+
+- name: Create the PostgreSQL role wikiuser
+  community.postgresql.postgresql_user:
+    name: "{{ mediawiki_db_user }}"
+    password: "{{ mediawiki_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres
+  no_log: true
+
+- name: Create the MediaWiki database owned by wikiuser
+  community.postgresql.postgresql_db:
+    name: "{{ mediawiki_db_name }}"
+    owner: "{{ mediawiki_db_user }}"
+    encoding: UTF8
+    template: template0
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres
+
+- name: Create the replication role
+  community.postgresql.postgresql_user:
+    name: "{{ postgresql_replication_user }}"
+    password: "{{ postgresql_replication_password }}"
+    role_attr_flags: "LOGIN,REPLICATION"
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres
+  no_log: true
+
+- name: Create a physical replication slot for sql_2
+  community.postgresql.postgresql_slot:
+    name: "{{ postgresql_replication_slot }}"
+    slot_type: physical
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres

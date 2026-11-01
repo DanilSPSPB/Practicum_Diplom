@@ -1,0 +1,4 @@
+---
+postgresql_auth_method: scram-sha-256
+postgresql_max_wal_senders: 10
+postgresql_max_replication_slots: 10

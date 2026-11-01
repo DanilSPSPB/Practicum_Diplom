@@ -1,0 +1,2 @@
+# Managed by Ansible. Only web servers can mount this export.
+{{ mediawiki_nfs_export }}{% for host in groups['web_servers'] %} {{ hostvars[host]['ansible_host'] }}(rw,sync,no_subtree_check,root_squash){% endfor %}

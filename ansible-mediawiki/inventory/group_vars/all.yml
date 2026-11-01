@@ -1,0 +1,67 @@
+---
+# Application and infrastructure-wide settings. SSH connection options live in inventory/hosts.yml.
+
+# MediaWiki application code is installed locally on each web node.
+mediawiki_version: "1.42.1"
+mediawiki_archive_url: "https://releases.wikimedia.org/mediawiki/1.42/mediawiki-1.42.1.tar.gz"
+mediawiki_archive_sha256: ""
+mediawiki_archive_path: "/var/cache/ansible/mediawiki-{{ mediawiki_version }}.tar.gz"
+mediawiki_root: "/var/www/mediawiki-{{ mediawiki_version }}"
+
+# NFS stores uploaded files only. The wiki code and LocalSettings.php stay local.
+mediawiki_nfs_export: "/srv/nfs/mediawiki-images"
+mediawiki_nfs_host: "{{ hostvars['nfs']['ansible_host'] }}"
+mediawiki_upload_mount_point: "/srv/mediawiki-images"
+mediawiki_upload_directory: "{{ mediawiki_upload_mount_point }}"
+mediawiki_upload_url_path: "/images"
+# hard preserves write integrity; automount/nofail avoid making boot depend on NFS.
+mediawiki_nfs_mount_options: "rw,hard,timeo=600,retrans=2,_netdev,nofail,vers=4.2,x-systemd.automount"
+mediawiki_uid: 33
+mediawiki_gid: 33
+
+# PostgreSQL: sql_1 is primary, sql_2 is a physical standby.
+postgresql_version: "16"
+postgresql_port: 5432
+postgresql_config_dir: "/etc/postgresql/{{ postgresql_version }}/main"
+postgresql_data_dir: "/var/lib/postgresql/{{ postgresql_version }}/main"
+postgresql_primary_host: "{{ hostvars[groups['postgres_primary'][0]]['ansible_host'] }}"
+postgresql_standby_host: "{{ hostvars[groups['postgres_standby'][0]]['ansible_host'] }}"
+postgresql_replication_user: "replicator"
+postgresql_replication_password: "{{ vault_postgresql_replication_password }}"
+postgresql_replication_slot: "{{ groups['postgres_standby'][0] }}_physical"
+postgresql_replication_cidr: "{{ postgresql_standby_host }}/32"
+postgresql_primary_cidr: "{{ postgresql_primary_host }}/32"
+postgresql_web_cidr: "192.168.10.0/28"
+
+# The MediaWiki database is owned by the PostgreSQL role wikiuser.
+mediawiki_db_type: "postgres"
+mediawiki_db_host: "{{ postgresql_primary_host }}"
+mediawiki_db_port: "{{ postgresql_port }}"
+mediawiki_db_name: "mediawiki"
+mediawiki_db_user: "wikiuser"
+mediawiki_db_password: "{{ vault_mediawiki_db_password }}"
+mediawiki_secret_key: "{{ vault_mediawiki_secret_key }}"
+mediawiki_server_url: "http://wiki.example.local"
+mediawiki_sitename: "My MediaWiki"
+mediawiki_meta_namespace: "My_MediaWiki"
+mediawiki_max_upload_size: 52428800
+
+# Web backend port; shared by web_server and nginx_balancer roles.
+web_nginx_port: 8080
+
+# Zabbix agents on all nodes report to vm_zabbix.
+zabbix_server_host: "{{ hostvars[groups['zabbix'][0]]['ansible_host'] }}"
+
+# Backup storage is a separate VM (inventory group: backup), not the NFS server.
+# Source-side jobs push archives to this host over SSH/SCP.
+backup_storage_host: "{{ hostvars[groups['backup'][0]]['ansible_host'] }}"
+backup_storage_user: "backupsvc"
+backup_storage_port: 22
+backup_ssh_private_key_path: "/root/.ssh/id_ed25519_backup_storage"
+backup_ssh_known_hosts_path: "/root/.ssh/known_hosts"
+backup_postgresql_remote_dir: "/srv/backups/postgresql"
+backup_storage_mediawiki_dir: "/srv/backups/mediawiki"
+
+# Daily systemd timer schedules on the source VMs (host local time).
+backup_postgresql_schedule: "*-*-* 02:15:00"
+backup_mediawiki_schedule: "*-*-* 03:15:00"

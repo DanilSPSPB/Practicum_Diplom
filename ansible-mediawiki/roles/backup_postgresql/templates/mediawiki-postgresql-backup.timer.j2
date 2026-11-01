@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule MediaWiki PostgreSQL backup transfer
+
+[Timer]
+OnCalendar={{ backup_postgresql_schedule }}
+Persistent=true
+RandomizedDelaySec=5m
+Unit={{ backup_postgresql_service_name }}
+
+[Install]
+WantedBy=timers.target

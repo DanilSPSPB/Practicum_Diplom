@@ -1,0 +1,4 @@
+---
+postgresql_replication_staging_dir: "{{ postgresql_data_dir }}.basebackup"
+postgresql_replication_old_data_dir: "{{ postgresql_data_dir }}.before-replication"
+postgresql_pgpass_file: /var/lib/postgresql/.pgpass

@@ -1,0 +1,4 @@
+---
+nfs_server_package: nfs-kernel-server
+nfs_server_service: nfs-kernel-server
+mediawiki_nfs_parent: "/srv/nfs"

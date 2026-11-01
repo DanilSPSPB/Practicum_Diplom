@@ -1,0 +1,54 @@
+---
+- name: Install SSH server for incoming SCP transfers
+  ansible.builtin.apt:
+    name: openssh-server
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure the SSH host key exists
+  ansible.builtin.command: ssh-keygen -A
+  changed_when: false
+
+- name: Enable and start SSH server
+  ansible.builtin.service:
+    name: ssh
+    state: started
+    enabled: true
+
+- name: Create a dedicated unprivileged account for backup uploads
+  ansible.builtin.user:
+    name: "{{ backup_storage_user }}"
+    home: "/var/lib/{{ backup_storage_user }}"
+    create_home: true
+    shell: "{{ backup_storage_shell }}"
+    password_lock: true
+    state: present
+
+- name: Create the backup storage root directory
+  ansible.builtin.file:
+    path: "{{ backup_storage_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create destination directories for PostgreSQL and MediaWiki backups
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ backup_storage_user }}"
+    group: "{{ backup_storage_user }}"
+    mode: '0750'
+  loop:
+    - "{{ backup_storage_postgresql_dir }}"
+    - "{{ backup_storage_mediawiki_dir }}"
+
+- name: Read the backup storage SSH host public key
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  register: backup_storage_host_key_file
+
+- name: Publish the backup storage host key for source nodes in this playbook run
+  ansible.builtin.set_fact:
+    backup_storage_host_public_key: "{{ backup_storage_host_key_file.content | b64decode | trim }}"

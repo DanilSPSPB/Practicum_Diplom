@@ -1,0 +1,7 @@
+---
+- name: Проверить доступность всех узлов через bastion
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Проверить SSH-подключение и Python
+      ansible.builtin.ping:

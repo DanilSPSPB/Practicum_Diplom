@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a PostgreSQL backup of MediaWiki and send it to backup storage via SCP
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart={{ backup_postgresql_script_path }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

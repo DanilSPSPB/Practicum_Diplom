@@ -1,0 +1,43 @@
+---
+- name: Create local MediaWiki backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+    - "{{ backup_mediawiki_local_root }}"
+    - "{{ backup_mediawiki_local_root }}/pending"
+    - "{{ backup_mediawiki_local_root }}/sent"
+
+- name: Install the MediaWiki archive and SCP transfer script
+  ansible.builtin.template:
+    src: backup-mediawiki.sh.j2
+    dest: "{{ backup_mediawiki_script_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Install MediaWiki backup systemd service
+  ansible.builtin.template:
+    src: mediawiki-backup.service.j2
+    dest: "/etc/systemd/system/{{ backup_mediawiki_service_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install MediaWiki backup systemd timer
+  ansible.builtin.template:
+    src: mediawiki-backup.timer.j2
+    dest: "/etc/systemd/system/{{ backup_mediawiki_timer_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable the MediaWiki backup timer
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "{{ backup_mediawiki_timer_name }}"
+    state: started
+    enabled: true

@@ -1,0 +1,4 @@
+---
+web_nfs_client_package: nfs-common
+web_nginx_package: nginx
+web_nginx_site_name: mediawiki

@@ -1,0 +1,41 @@
+---
+- name: Install NFS server
+  ansible.builtin.apt:
+    name: "{{ nfs_server_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create NFS parent directory
+  ansible.builtin.file:
+    path: "{{ mediawiki_nfs_parent }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create an empty shared MediaWiki uploads directory
+  ansible.builtin.file:
+    path: "{{ mediawiki_nfs_export }}"
+    state: directory
+    owner: "{{ mediawiki_uid }}"
+    group: "{{ mediawiki_gid }}"
+    mode: '2775'
+
+- name: Configure NFS export for the web servers
+  ansible.builtin.template:
+    src: mediawiki.exports.j2
+    dest: /etc/exports.d/mediawiki.exports
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload NFS exports
+
+- name: Enable and start NFS server
+  ansible.builtin.service:
+    name: "{{ nfs_server_service }}"
+    state: started
+    enabled: true
+
+- name: Apply NFS export changes before web servers mount it
+  ansible.builtin.meta: flush_handlers

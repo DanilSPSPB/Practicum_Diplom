@@ -1,0 +1,35 @@
+---
+- name: Install common utilities on all managed servers
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Configure the PostgreSQL primary and create the MediaWiki database
+  hosts: postgres_primary
+  become: true
+  roles:
+    - postgresql_primary
+
+- name: Configure the PostgreSQL standby by copying data from the primary
+  hosts: postgres_standby
+  become: true
+  roles:
+    - postgresql_replication
+
+- name: Check that PostgreSQL streaming replication is active
+  hosts: postgres_primary
+  become: true
+  tasks:
+    - name: Read the standby state
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/psql
+          - -Atqc
+          - "SELECT state FROM pg_stat_replication LIMIT 1;"
+      become_user: postgres
+      register: postgresql_replication_state
+      changed_when: false
+      retries: 20
+      delay: 3
+      until: postgresql_replication_state.stdout | trim == 'streaming'

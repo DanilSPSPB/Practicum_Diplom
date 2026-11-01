@@ -1,0 +1,43 @@
+---
+- name: Create local PostgreSQL backup working directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+    - "{{ backup_postgresql_local_root }}"
+    - "{{ backup_postgresql_local_root }}/pending"
+    - "{{ backup_postgresql_local_root }}/sent"
+
+- name: Install the PostgreSQL dump and SCP transfer script
+  ansible.builtin.template:
+    src: backup-postgresql.sh.j2
+    dest: "{{ backup_postgresql_script_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Install PostgreSQL backup systemd service
+  ansible.builtin.template:
+    src: mediawiki-postgresql-backup.service.j2
+    dest: "/etc/systemd/system/{{ backup_postgresql_service_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install PostgreSQL backup systemd timer
+  ansible.builtin.template:
+    src: mediawiki-postgresql-backup.timer.j2
+    dest: "/etc/systemd/system/{{ backup_postgresql_timer_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd and enable the PostgreSQL backup timer
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "{{ backup_postgresql_timer_name }}"
+    state: started
+    enabled: true

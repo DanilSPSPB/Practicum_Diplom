@@ -1,0 +1,5 @@
+---
+backup_mediawiki_local_root: /var/backups/mediawiki
+backup_mediawiki_script_path: /usr/local/sbin/backup-mediawiki.sh
+backup_mediawiki_service_name: mediawiki-backup.service
+backup_mediawiki_timer_name: mediawiki-backup.timer

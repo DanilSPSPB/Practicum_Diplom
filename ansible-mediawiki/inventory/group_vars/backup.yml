@@ -1,0 +1,6 @@
+---
+# Destination VM for SCP transfers. It is not an NFS server and nothing mounts it.
+backup_storage_root: /srv/backups
+backup_storage_postgresql_dir: "{{ backup_storage_root }}/postgresql"
+backup_storage_mediawiki_dir: "{{ backup_storage_root }}/mediawiki"
+backup_storage_shell: /bin/bash

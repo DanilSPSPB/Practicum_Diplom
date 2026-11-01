@@ -1,0 +1,133 @@
+---
+- name: Validate that the MediaWiki code and uploads paths are separate
+  ansible.builtin.assert:
+    that:
+      - mediawiki_root != mediawiki_upload_mount_point
+      - not mediawiki_root.startswith(mediawiki_upload_mount_point.rstrip('/') ~ '/')
+      - not mediawiki_upload_mount_point.startswith(mediawiki_root.rstrip('/') ~ '/')
+    fail_msg: >-
+      MediaWiki code ({{ mediawiki_root }}) and the NFS uploads mount
+      ({{ mediawiki_upload_mount_point }}) must be separate directories.
+
+- name: Install Nginx, NFS client and PHP-FPM packages
+  ansible.builtin.apt:
+    name: "{{ [web_nginx_package, web_nfs_client_package] + php_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create local archive cache directory
+  ansible.builtin.file:
+    path: "{{ mediawiki_archive_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download MediaWiki archive to this web server
+  ansible.builtin.get_url:
+    url: "{{ mediawiki_archive_url }}"
+    dest: "{{ mediawiki_archive_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    checksum: "{{ ('sha256:' ~ mediawiki_archive_sha256) if (mediawiki_archive_sha256 | length > 0) else omit }}"
+
+# unarchive runs on each web node. No NFS mount is involved in this path.
+- name: Extract MediaWiki application code locally on this web server
+  ansible.builtin.unarchive:
+    src: "{{ mediawiki_archive_path }}"
+    dest: /var/www
+    remote_src: true
+    owner: root
+    group: www-data
+    mode: 'u=rwX,g=rX,o=rX'
+    creates: "{{ mediawiki_root }}/index.php"
+
+- name: Verify local MediaWiki installation
+  ansible.builtin.stat:
+    path: "{{ mediawiki_root }}/index.php"
+  register: web_mediawiki_index
+
+- name: Stop if local MediaWiki code is missing
+  ansible.builtin.assert:
+    that:
+      - web_mediawiki_index.stat.exists
+      - web_mediawiki_index.stat.isreg
+    fail_msg: >-
+      {{ mediawiki_root }}/index.php is missing. MediaWiki code must be
+      installed locally on this web server; it must not be provided by NFS.
+
+# NFS is mounted only at this separate directory for uploaded media.
+- name: Create separate local mount point for MediaWiki uploads
+  ansible.builtin.file:
+    path: "{{ mediawiki_upload_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Mount only the shared uploads directory from NFS
+  ansible.posix.mount:
+    src: "{{ mediawiki_nfs_host }}:{{ mediawiki_nfs_export }}"
+    path: "{{ mediawiki_upload_mount_point }}"
+    fstype: nfs
+    opts: "{{ mediawiki_nfs_mount_options }}"
+    state: mounted
+
+# LocalSettings.php is rendered independently on each web node, not delegated to NFS.
+- name: Create LocalSettings.php locally on this web server
+  ansible.builtin.template:
+    src: LocalSettings.php.j2
+    dest: "{{ mediawiki_root }}/LocalSettings.php"
+    owner: root
+    group: www-data
+    mode: '0640'
+  no_log: true
+
+- name: Configure PHP limits for MediaWiki uploads
+  ansible.builtin.template:
+    src: mediawiki.ini.j2
+    dest: "{{ php_fpm_ini_dir }}/99-mediawiki.ini"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart PHP-FPM
+
+- name: Install MediaWiki Nginx site configuration
+  ansible.builtin.template:
+    src: mediawiki.conf.j2
+    dest: "{{ nginx_web_site_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Nginx
+
+- name: Enable MediaWiki Nginx site
+  ansible.builtin.file:
+    src: "{{ nginx_web_site_path }}"
+    dest: "{{ nginx_web_enabled_path }}"
+    state: link
+  notify: Restart Nginx
+
+- name: Disable the distribution default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Restart Nginx
+
+- name: Check Nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Enable and start PHP-FPM
+  ansible.builtin.service:
+    name: "{{ php_fpm_service }}"
+    state: started
+    enabled: true
+
+- name: Enable and start Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

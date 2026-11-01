@@ -1,0 +1,139 @@
+---
+- name: Validate the Zabbix database password
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_password is defined
+      - zabbix_db_password | length >= 24
+    fail_msg: "Add vault_zabbix_db_password to inventory/group_vars/all/vault.yml and encrypt the file."
+
+- name: Install PostgreSQL and Zabbix Server with Nginx frontend
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - python3-psycopg2
+      - zabbix-server-pgsql
+      - zabbix-frontend-php
+      - zabbix-nginx-conf
+      - zabbix-sql-scripts
+      - nginx
+      - php-fpm
+      - php-pgsql
+    state: present
+
+- name: Enable and start local PostgreSQL for Zabbix
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Create the Zabbix PostgreSQL role
+  community.postgresql.postgresql_user:
+    name: "{{ zabbix_db_user }}"
+    password: "{{ zabbix_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres
+  no_log: true
+
+- name: Create the Zabbix database
+  community.postgresql.postgresql_db:
+    name: "{{ zabbix_db_name }}"
+    owner: "{{ zabbix_db_user }}"
+    encoding: UTF8
+    template: template0
+    state: present
+    login_user: postgres
+    login_db: postgres
+    login_unix_socket: /var/run/postgresql
+  become_user: postgres
+
+- name: Find the packaged Zabbix PostgreSQL schema
+  ansible.builtin.find:
+    paths: /usr/share/zabbix
+    patterns: server.sql.gz
+    recurse: true
+  register: zabbix_schema_files
+
+- name: Ensure that the Zabbix SQL schema package contains the database script
+  ansible.builtin.assert:
+    that:
+      - zabbix_schema_files.matched | int > 0
+    fail_msg: "Cannot find server.sql.gz under /usr/share/zabbix. Check the installed Zabbix packages."
+
+- name: Import Zabbix database schema once
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    zcat {{ zabbix_schema_files.files[0].path | quote }} |
+    runuser -u {{ zabbix_db_user | quote }} -- psql {{ zabbix_db_name | quote }}
+  args:
+    executable: /bin/bash
+    creates: /var/lib/zabbix/.ansible-schema-imported
+  register: zabbix_schema_import
+  changed_when: true
+
+- name: Mark Zabbix schema as imported
+  ansible.builtin.file:
+    path: /var/lib/zabbix/.ansible-schema-imported
+    state: touch
+    owner: zabbix
+    group: zabbix
+    mode: '0600'
+  when: zabbix_schema_import is changed
+
+- name: Configure Zabbix Server database connection
+  ansible.builtin.blockinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    marker: "# {mark} ANSIBLE DATABASE SETTINGS"
+    block: |
+      DBHost=localhost
+      DBName={{ zabbix_db_name }}
+      DBUser={{ zabbix_db_user }}
+      DBPassword={{ zabbix_db_password }}
+  notify: Restart Zabbix Server
+  no_log: true
+
+- name: Set Nginx listen port for the Zabbix frontend
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/nginx.conf
+    regexp: '^\s*#?\s*listen\s+[0-9]+;'
+    line: "        listen {{ zabbix_server_web_port }};"
+  notify: Restart Nginx
+
+- name: Set Nginx server name for the Zabbix frontend
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/nginx.conf
+    regexp: '^\s*#?\s*server_name\s+.*;'
+    line: "        server_name _;"
+  notify: Restart Nginx
+
+- name: Enable the packaged Zabbix Nginx configuration
+  ansible.builtin.file:
+    src: /etc/zabbix/nginx.conf
+    dest: /etc/nginx/sites-enabled/zabbix
+    state: link
+  notify: Restart Nginx
+
+- name: Disable the distribution default Nginx site on the monitoring server
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Restart Nginx
+
+- name: Check Nginx configuration on the monitoring server
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Enable and start Zabbix Server
+  ansible.builtin.service:
+    name: zabbix-server
+    state: started
+    enabled: true
+
+- name: Enable and start Nginx for the Zabbix frontend
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

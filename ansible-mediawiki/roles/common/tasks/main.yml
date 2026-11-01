@@ -1,0 +1,27 @@
+---
+- name: Проверить поддержку Debian/Ubuntu
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+    fail_msg: "Роль common рассчитана на Debian/Ubuntu (apt)."
+
+- name: Обновить индекс APT
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Установить базовые вспомогательные программы
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - wget
+      - gnupg
+      - tar
+      - gzip
+      - unzip
+      - jq
+      - openssh-client
+      - vim-tiny
+      - python3-apt
+    state: present

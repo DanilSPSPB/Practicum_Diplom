@@ -1,0 +1,8 @@
+---
+postgresql_packages:
+  - "postgresql-{{ postgresql_version }}"
+  - "postgresql-client-{{ postgresql_version }}"
+  - python3-psycopg2
+postgresql_apt_key_url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+postgresql_apt_key_path: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+postgresql_apt_source_path: /etc/apt/sources.list.d/pgdg.sources

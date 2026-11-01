@@ -1,0 +1,167 @@
+---
+- name: Install PostgreSQL repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - postgresql-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create PostgreSQL repository key directory
+  ansible.builtin.file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+    mode: '0755'
+
+- name: Download PostgreSQL repository signing key
+  ansible.builtin.get_url:
+    url: "{{ postgresql_apt_key_url }}"
+    dest: "{{ postgresql_apt_key_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Add the official PostgreSQL repository
+  ansible.builtin.copy:
+    dest: "{{ postgresql_apt_source_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: https://apt.postgresql.org/pub/repos/apt
+      Suites: {{ ansible_distribution_release }}-pgdg
+      Components: main
+      Signed-By: {{ postgresql_apt_key_path }}
+
+- name: Install PostgreSQL 16 and Python driver
+  ansible.builtin.apt:
+    name: "{{ postgresql_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check whether this node is already a standby
+  ansible.builtin.stat:
+    path: "{{ postgresql_data_dir }}/standby.signal"
+  register: postgresql_standby_signal
+
+- name: Configure PostgreSQL to accept connections after a future promotion
+  ansible.builtin.blockinfile:
+    path: "{{ postgresql_config_dir }}/postgresql.conf"
+    marker: "# {mark} ANSIBLE POSTGRESQL SETTINGS"
+    block: |
+      listen_addresses = '*'
+      port = {{ postgresql_port }}
+      password_encryption = 'scram-sha-256'
+      hot_standby = on
+  notify: Restart PostgreSQL
+
+- name: Allow MediaWiki and the former primary to connect after a manual promotion
+  ansible.builtin.blockinfile:
+    path: "{{ postgresql_config_dir }}/pg_hba.conf"
+    marker: "# {mark} ANSIBLE MEDIAWIKI AND REPLICATION ACCESS"
+    block: |
+      host  {{ mediawiki_db_name }}  {{ mediawiki_db_user }}  {{ postgresql_web_cidr }}  scram-sha-256
+      host  replication  {{ postgresql_replication_user }}  {{ postgresql_primary_cidr }}  scram-sha-256
+  notify: Restart PostgreSQL
+
+- name: Install PostgreSQL password file for the primary connection
+  ansible.builtin.template:
+    src: pgpass.j2
+    dest: "{{ postgresql_pgpass_file }}"
+    owner: postgres
+    group: postgres
+    mode: '0600'
+  no_log: true
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Stop PostgreSQL before taking the base backup
+  ansible.builtin.service:
+    name: postgresql
+    state: stopped
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Check for an incomplete base backup from an earlier failed run
+  ansible.builtin.stat:
+    path: "{{ postgresql_replication_staging_dir }}"
+  register: postgresql_replication_staging
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Stop if the base-backup staging directory already exists
+  ansible.builtin.assert:
+    that:
+      - not postgresql_replication_staging.stat.exists
+    fail_msg: >-
+      The staging directory {{ postgresql_replication_staging_dir }} already exists,
+      so it may contain data from an interrupted pg_basebackup. The role will not
+      delete it automatically. Inspect it and remove it manually only if it is
+      confirmed to be an incomplete backup, then rerun the playbook.
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Copy the primary data directory into a staging directory
+  ansible.builtin.command:
+    argv:
+      - "/usr/lib/postgresql/{{ postgresql_version }}/bin/pg_basebackup"
+      - "--host={{ postgresql_primary_host }}"
+      - "--port={{ postgresql_port }}"
+      - "--username={{ postgresql_replication_user }}"
+      - "--pgdata={{ postgresql_replication_staging_dir }}"
+      - --wal-method=stream
+      - --write-recovery-conf
+      - "--slot={{ postgresql_replication_slot }}"
+      - --progress
+  become_user: postgres
+  environment:
+    PGPASSFILE: "{{ postgresql_pgpass_file }}"
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Preserve the default empty PostgreSQL cluster
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ postgresql_data_dir }}"
+      - "{{ postgresql_replication_old_data_dir }}"
+  args:
+    creates: "{{ postgresql_replication_old_data_dir }}"
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Put the replicated data directory in place
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ postgresql_replication_staging_dir }}"
+      - "{{ postgresql_data_dir }}"
+  args:
+    creates: "{{ postgresql_data_dir }}/standby.signal"
+  when: not postgresql_standby_signal.stat.exists
+
+- name: Ensure PostgreSQL owns the replicated data directory
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
+- name: Enable and start the standby PostgreSQL service
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Wait until the standby reports recovery mode
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/psql
+      - -Atqc
+      - "SELECT pg_is_in_recovery();"
+  become_user: postgres
+  register: postgresql_is_in_recovery
+  retries: 20
+  delay: 3
+  until: postgresql_is_in_recovery.stdout | trim == 't'
+  changed_when: false

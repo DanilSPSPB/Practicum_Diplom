@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule MediaWiki backup transfer
+
+[Timer]
+OnCalendar={{ backup_mediawiki_schedule }}
+Persistent=true
+RandomizedDelaySec=10m
+Unit={{ backup_mediawiki_service_name }}
+
+[Install]
+WantedBy=timers.target

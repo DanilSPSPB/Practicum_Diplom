@@ -1,0 +1,63 @@
+---
+- name: Check supported operating system for the official Zabbix repository
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+      - (ansible_distribution == 'Ubuntu' and ansible_distribution_version in ['22.04', '24.04']) or (ansible_distribution == 'Debian' and ansible_distribution_major_version in ['12', '13'])
+    fail_msg: "This role supports Ubuntu 22.04/24.04 and Debian 12/13."
+
+- name: Download the official Zabbix repository package for Ubuntu
+  ansible.builtin.get_url:
+    url: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/release/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest+ubuntu{{ ansible_distribution_version }}_all.deb"
+    dest: /tmp/zabbix-release.deb
+    mode: '0644'
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Download the official Zabbix repository package for Debian
+  ansible.builtin.get_url:
+    url: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian{{ ansible_distribution_major_version }}_all.deb"
+    dest: /tmp/zabbix-release.deb
+    mode: '0644'
+  when: ansible_distribution == 'Debian'
+
+- name: Install the official Zabbix repository
+  ansible.builtin.apt:
+    deb: /tmp/zabbix-release.deb
+    state: present
+
+- name: Refresh APT package indexes
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install Zabbix Agent 2 on every managed server
+  ansible.builtin.apt:
+    name: "{{ zabbix_agent_package }}"
+    state: present
+
+- name: Ensure Zabbix Agent 2 include directory exists
+  ansible.builtin.file:
+    path: /etc/zabbix/zabbix_agent2.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure Zabbix Agent 2 to report to the monitoring server
+  ansible.builtin.template:
+    src: agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/ansible.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Zabbix Agent 2
+
+- name: Enable and start Zabbix Agent 2
+  ansible.builtin.service:
+    name: "{{ zabbix_agent_service }}"
+    state: started
+    enabled: true
+
+- name: Configure the Zabbix Server on vm_zabbix
+  ansible.builtin.include_tasks: server.yml
+  when: inventory_hostname in groups['zabbix']

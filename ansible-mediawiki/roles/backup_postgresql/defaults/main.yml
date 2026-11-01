@@ -1,0 +1,5 @@
+---
+backup_postgresql_local_root: /var/backups/mediawiki-postgresql
+backup_postgresql_script_path: /usr/local/sbin/backup-mediawiki-postgresql.sh
+backup_postgresql_service_name: mediawiki-postgresql-backup.service
+backup_postgresql_timer_name: mediawiki-postgresql-backup.timer

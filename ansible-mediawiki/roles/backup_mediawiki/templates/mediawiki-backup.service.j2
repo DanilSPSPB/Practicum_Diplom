@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up the MediaWiki directory and uploads to backup storage
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor={{ mediawiki_upload_mount_point }}
+
+[Service]
+Type=oneshot
+ExecStart={{ backup_mediawiki_script_path }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

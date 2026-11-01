@@ -1,0 +1,45 @@
+---
+- name: Проверить, что в inventory есть backend web-серверы
+  ansible.builtin.assert:
+    that:
+      - groups['web_servers'] | length >= 1
+    fail_msg: "Группа web_servers пуста: балансировщику некуда направлять запросы."
+
+- name: Установить Nginx на балансировщик
+  ansible.builtin.apt:
+    name: "{{ nginx_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Развернуть конфигурацию балансировщика
+  ansible.builtin.template:
+    src: balancer.conf.j2
+    dest: "{{ nginx_balancer_site_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Перезагрузить Nginx
+
+- name: Включить сайт балансировщика
+  ansible.builtin.file:
+    src: "{{ nginx_balancer_site_path }}"
+    dest: "{{ nginx_balancer_enabled_path }}"
+    state: link
+  notify: Перезагрузить Nginx
+
+- name: Отключить стандартный сайт Nginx из пакета
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Перезагрузить Nginx
+
+- name: Проверить конфигурацию Nginx
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Включить и запустить Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
